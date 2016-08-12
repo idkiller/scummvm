@@ -149,11 +149,6 @@ MODULE_OBJS += \
 	audiocd/linux/linux-audiocd.o
 endif
 
-ifeq ($(BACKEND),tizen)
-MODULE_OBJS += \
-	timer/tizen/timer.o
-endif
-
 ifeq ($(BACKEND),ds)
 MODULE_OBJS += \
 	fs/ds/ds-fs.o \

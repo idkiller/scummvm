@@ -886,7 +886,8 @@ Special configuration feature:
                                            ps3 for PlayStation 3
                                            psp for PlayStation Portable
                                            samsungtv for Samsung TV
-                                           tizen for Samsung Tizen
+                                           tizen-arm for Samsung Tizen ARM
+                                           tizen-emulator for Samsung Tizen Emulator
                                            webos for HP Palm WebOS
                                            wii for Nintendo Wii
                                            wince for Windows CE
@@ -1497,10 +1498,15 @@ samsungtv)
 	_host_cpu=arm
 	_host_alias=arm-linux-gnueabi
 	;;
-tizen)
+tizen-arm)
  	_host_os=tizen
 	_host_cpu=arm
 	_host_alias=arm-linux-gnueabi
+	;;
+tizen-emulator)
+ 	_host_os=tizen
+	_host_cpu=i386
+	_host_alias=i386-linux-gnueabi
 	;;
 webos)
 	_host_os=webos
@@ -1661,10 +1667,17 @@ psp)
 	fi
 	;;
 tizen)
+	if test -z "$TIZEN_SDK"; then
+		echo "Please set TIZEN_SDK in your environment. export TIZEN_SDK=<path to Tizen SDK>"
+		exit 1
+	fi
 	if test -z "$TIZEN_ROOTSTRAP"; then
 		echo "Please set TIZEN_ROOTSTRAP in your environment. export TIZEN_ROOTSTRAP=<path to Tizen SDK device profile>"
 		exit 1
 	fi
+	CLANG_PATH="$TIZEN_SDK/tools/llvm-3.6/bin"
+	CXX="$CLANG_PATH/clang++"
+	_use_cxx11="yes"
 	;;
 webos)
 	if test -z "$WEBOS_SDK"; then
@@ -2568,10 +2581,40 @@ case $_host_os in
 		append_var LIBS "-lnsl -lsocket"
 		;;
 	tizen)
+		add_line_to_config_mk "CLANG_PATH = $CLANG_PATH"
+		add_line_to_config_mk "TIZEN_SDK = $TIZEN_SDK"
 		add_line_to_config_mk "TIZEN_ROOTSTRAP = $TIZEN_ROOTSTRAP"
 		append_var LDFLAGS "--sysroot=${TIZEN_ROOTSTRAP}"
-		append_var LDFLAGS "-L${TIZEN_LIBS}/lib"
-		append_var CXXFLAGS "-I${TIZEN_LIBS}/include"
+		append_var LDFLAGS "-L${TIZEN_ROOTSTRAP}/lib"
+		append_var LDFLAGS "-L${TIZEN_ROOTSTRAP}/usr/lib"
+		append_var CXXFLAGS "--sysroot=${TIZEN_ROOTSTRAP}"
+		append_var CXXFLAGS "-I${TIZEN_ROOTSTRAP}/usr/include"
+		append_var CXXFLAGS "-ccc-gcc-name $_host_alias-g++"
+		append_var CXXFLAGS "-Wno-shift-count-overflow"
+		case $_host in
+			tizen-arm)
+				TIZEN_TOOLCHAIN="$TIZEN_SDK/tools/arm-linux-gnueabi-gcc-4.9"
+				TIZEN_HOST_ALIAS="arm-tizen-linux-gnueabi"
+				append_var CXXFLAGS "-march=armv7-a"
+				append_var CXXFLAGS "-mfloat-abi=softfp"
+				append_var CXXFLAGS "-mfpu=vfpv3-d16"
+				append_var CXXFLAGS "-mtune=cortex-a8"
+				append_var CXXFLAGS "-mthumb"
+				;;
+			tizen-emulator)
+				TIZEN_TOOLCHAIN="$TIZEN_SDK/tools/i386-linux-gnueabi-gcc-4.9"
+				TIZEN_HOST_ALIAS="i386-tizen-linux-gnueabi"
+				append_var CXXFLAGS "-march=i386"
+				;;
+		esac
+		append_var CXXFLAGS "-target $TIZEN_HOST_ALIAS"
+	  append_var CXXFLAGS "-gcc-toolchain $TIZEN_TOOLCHAIN"
+		add_line_to_config_mk "TIZEN_TOOLCHAIN = $TIZEN_TOOLCHAIN"
+		LD="$TIZEN_TOOLCHAIN/bin/$_host_alias-ld"
+		_ranlib="$TIZEN_TOOLCHAIN/bin/$_host_alias-ranlib"
+		_strip="$TIZEN_TOOLCHAIN/bin/$_host_alias-strip"
+		_ar="$TIZEN_TOOLCHAIN/bin/$_host_alias-ar cru"
+		_as="$TIZEN_TOOLCHAIN/bin/$_host_alias-as"
 		;;
 	webos)
 		append_var CXXFLAGS "--sysroot=$WEBOS_PDK/arm-gcc/sysroot"
@@ -3056,11 +3099,23 @@ if test -n "$_host"; then
 			_mt32emu=no
 			_vkeybd=yes
 			;;
-		tizen)
+		tizen-arm)
 			_unix=yes
 			_backend="tizen"
-			_port_mk="backends/platform/tizen/tizen.mk"
+			_port_mk="backends/platform/tizen/tizen-arm.mk"
 			_arm_asm=yes
+			_build_scalers=no
+			_seq_midi=no
+			_mt32emu=no
+			_timidity=no
+			_vkeybd=yes
+			# Tizen relies on the OpenGL ES output thus we always enable it.
+			_opengl_mode=gles
+			;;
+		tizen-emulator)
+			_unix=yes
+			_backend="tizen"
+			_port_mk="backends/platform/tizen/tizen-emulator.mk"
 			_build_scalers=no
 			_seq_midi=no
 			_mt32emu=no
@@ -3222,23 +3277,17 @@ case $_backend in
 	sdl)
 		;;
 	tizen)
-		# dirent.h not available. NONSTANDARD_PORT==ensure portdefs.h is included
-		append_var DEFINES "-DTIZEN -DDISABLE_STDIO_FILESTREAM -DNONSTANDARD_PORT"
+		append_var DEFINES "-DTIZEN"
 		append_var DEFINES "-DNO_STDERR_STDOUT"
 		append_var DEFINES "-DDISABLE_COMMAND_LINE"
 		append_var INCLUDES '-I$(srcdir)/backends/platform/tizen'
 		append_var INCLUDES '-I$(TIZEN_ROOTSTRAP)/usr/include'
-		append_var INCLUDES '-I$(TIZEN_ROOTSTRAP)/usr/include/osp'
 		if test "$_debug_build" = yes; then
 			append_var CXXFLAGS "-D_DEBUG -DBUILD_DLL -O0 -g3"
 		fi
-		# created a shared library for inclusion via the eclipse build
-		append_var CXXFLAGS "-Wno-psabi"
 		append_var CXXFLAGS "--sysroot=${TIZEN_ROOTSTRAP}"
 		append_var CXXFLAGS "-fmessage-length=0"
-		append_var CXXFLAGS "-fPIC"
-		HOSTEXEPRE=lib
-		HOSTEXEEXT=.a
+		append_var CXXFLAGS "-fPIE"
 		;;
 	webos)
 		# There is no sdl-config in the WebOS PDK so we don't use find_sdlconfig here.
